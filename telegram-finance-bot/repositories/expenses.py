@@ -1,13 +1,15 @@
-""" Работа с расходами — их добавление, удаление, статистики"""
+"""Работа с расходами — их добавление, удаление, статистики"""
 import datetime
 import re
 from typing import List, NamedTuple, Optional
 
 import pytz
 
-import db
-import exceptions
-from categories import Categories
+from . import budgets
+from . import exceptions
+from .categories import Categories
+from db import db
+from settings import settings
 
 
 class Message(NamedTuple):
@@ -23,74 +25,75 @@ class Expense(NamedTuple):
     category_name: str
 
 
-def add_expense(raw_message: str) -> Expense:
-    """Добавляет новое сообщение.
+def add_expense(raw_message: str, id_user) -> Expense:
+    """
+    Добавляет новое сообщение.
     Принимает на вход текст сообщения, пришедшего в бот."""
     parsed_message = _parse_message(raw_message)
-    category = Categories().get_category(
-        parsed_message.category_text)
+    category = Categories().get_category(parsed_message.category_text)
     inserted_row_id = db.insert("expense", {
         "amount": parsed_message.amount,
         "created": _get_now_formatted(),
-        "category_codename": category.codename,
-        "raw_text": raw_message
+        "raw_text": raw_message,
+        "id_user": id_user,
+        "category_codename": category.codename
     })
     return Expense(id=None,
                    amount=parsed_message.amount,
                    category_name=category.name)
 
 
-def get_today_statistics() -> str:
+def get_today_statistics(id_user: int) -> str:
     """Возвращает строкой статистику расходов за сегодня"""
     cursor = db.get_cursor()
-    cursor.execute("select sum(amount)"
-                   "from expense where date(created)=date('now', 'localtime')")
+    cursor.execute("select sum(amount) "
+                   f"from expense where date(created)=date('now', 'localtime') AND id_user={id_user}")
     result = cursor.fetchone()
     if not result[0]:
         return "Сегодня ещё нет расходов"
     all_today_expenses = result[0]
     cursor.execute("select sum(amount) "
-                   "from expense where date(created)=date('now', 'localtime') "
+                   f"from expense where date(created)=date('now', 'localtime') AND id_user={id_user} "
                    "and category_codename in (select codename "
                    "from category where is_base_expense=true)")
     result = cursor.fetchone()
     base_today_expenses = result[0] if result[0] else 0
     return (f"Расходы сегодня:\n"
             f"всего — {all_today_expenses} руб.\n"
-            f"базовые — {base_today_expenses} руб. из {_get_budget_limit()} руб.\n\n"
+            f"базовые — {base_today_expenses} руб. из {budgets.get_daily_budget_limit(id_user)} руб.\n\n"
             f"За текущий месяц: /month")
 
 
-def get_month_statistics() -> str:
+def get_month_statistics(id_user: int) -> str:
     """Возвращает строкой статистику расходов за текущий месяц"""
     now = _get_now_datetime()
     first_day_of_month = f'{now.year:04d}-{now.month:02d}-01'
     cursor = db.get_cursor()
     cursor.execute(f"select sum(amount) "
-                   f"from expense where date(created) >= '{first_day_of_month}'")
+                   f"from expense where date(created) >= '{first_day_of_month}' AND id_user={id_user}")
     result = cursor.fetchone()
     if not result[0]:
         return "В этом месяце ещё нет расходов"
     all_today_expenses = result[0]
     cursor.execute(f"select sum(amount) "
-                   f"from expense where date(created) >= '{first_day_of_month}' "
+                   f"from expense where date(created) >= '{first_day_of_month}' AND id_user={id_user} "
                    f"and category_codename in (select codename "
                    f"from category where is_base_expense=true)")
     result = cursor.fetchone()
     base_today_expenses = result[0] if result[0] else 0
     return (f"Расходы в текущем месяце:\n"
             f"всего — {all_today_expenses} руб.\n"
-            f"базовые — {base_today_expenses} руб. из "
-            f"{now.day * _get_budget_limit()} руб.")
+            f"базовые — {base_today_expenses} руб. из {budgets.get_monthly_budget_limit(id_user)} руб.\n\n"
+            f"За сегодня: /today")
 
 
-def last() -> List[Expense]:
+def last(id_user: int) -> List[Expense]:
     """Возвращает последние несколько расходов"""
     cursor = db.get_cursor()
     cursor.execute(
         "select e.id, e.amount, c.name "
         "from expense e left join category c "
-        "on c.codename=e.category_codename "
+        f"on c.codename=e.category_codename where id_user={id_user} "
         "order by created desc limit 10")
     rows = cursor.fetchall()
     last_expenses = [Expense(id=row[0], amount=row[1], category_name=row[2]) for row in rows]
@@ -122,12 +125,7 @@ def _get_now_formatted() -> str:
 
 
 def _get_now_datetime() -> datetime.datetime:
-    """Возвращает сегодняшний datetime с учётом времненной зоны Мск."""
-    tz = pytz.timezone("Europe/Moscow")
+    """Возвращает сегодняшний datetime с учётом времненной зоны Екб"""
+    tz = pytz.timezone(settings["timezone"]["tz"])
     now = datetime.datetime.now(tz)
     return now
-
-
-def _get_budget_limit() -> int:
-    """Возвращает дневной лимит трат для основных базовых трат"""
-    return db.fetchall("budget", ["daily_limit"])[0]["daily_limit"]

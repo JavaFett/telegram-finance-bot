@@ -13,9 +13,10 @@
 **/*.out
 **/.ipynb_checkpoints
 
-.env
-.env-prod
-
 env/
 venv/
 .venv/
+
+.gitignore
+README.md
+Dockerfile

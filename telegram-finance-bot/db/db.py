@@ -20,6 +20,12 @@ def insert(table: str, column_values: Dict):
     conn.commit()
 
 
+def select_user(id_user: int):
+    cursor.execute(f"SELECT * FROM user WHERE id={id_user}")
+    user = cursor.fetchone()
+    return user
+
+
 def fetchall(table: str, columns: List[str]) -> List[Tuple]:
     columns_joined = ", ".join(columns)
     cursor.execute(f"SELECT {columns_joined} FROM {table}")
@@ -45,7 +51,7 @@ def get_cursor():
 
 def _init_db():
     """Инициализирует БД"""
-    with open("createdb.sql", "r") as f:
+    with open("db/createdb.sql", "r") as f:
         sql = f.read()
     cursor.executescript(sql)
     conn.commit()
