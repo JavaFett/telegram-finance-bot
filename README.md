@@ -16,3 +16,5 @@ docker build -t tg-finance-bot .
 
 docker run -d --name tg-finance-bot --env-file .env -v ${PWD}:/var/www/telegram-finance-bot tg-finance-bot
 ```
+-------
+[Пример развернутого Телеграм бота](https://t.me/suren_finance_bot)
